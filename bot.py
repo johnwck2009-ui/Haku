@@ -443,6 +443,40 @@ async def today(message: Message):
     await message.answer("\n".join(lines), reply_markup=MENU)
 
 
+
+@dp.message(Command("privacy"))
+async def privacy(message: Message):
+    await message.answer(
+        "<b>White Deer privacy</b>\\n"
+        "White Deer stores your Telegram user ID, timezone, tasks, reminders, notes, and habit check-ins "
+        "in its SQLite database so the organizer features can work.\\n"
+        "Your information is not used to send unsolicited promotional messages. "
+        "Use /delete_my_data to request deletion of your stored information."
+    )
+
+
+@dp.message(Command("delete_my_data"))
+async def request_data_deletion(message: Message):
+    await message.answer(
+        "This will permanently delete your White Deer tasks, reminders, notes, habits, check-ins, "
+        "and timezone setting. To confirm, send /confirm_delete_my_data."
+    )
+
+
+@dp.message(Command("confirm_delete_my_data"))
+async def confirm_data_deletion(message: Message):
+    user_id = message.from_user.id
+    async with await db_connect() as db:
+        await db.execute("DELETE FROM habit_checks WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM habits WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM reminders WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM notes WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        await db.commit()
+    await message.answer("Your White Deer data has been deleted from this bot's database.")
+
+
 async def reminder_worker(bot: Bot):
     while True:
         try:
