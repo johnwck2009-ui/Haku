@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
 from datetime import datetime, timezone
@@ -38,15 +39,19 @@ MENU = ReplyKeyboardMarkup(
 )
 
 
+@asynccontextmanager
 async def db_connect():
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys = ON")
-    return db
+    try:
+        await db.execute("PRAGMA foreign_keys = ON")
+        yield db
+    finally:
+        await db.close()
 
 
 async def init_db():
-    async with await db_connect() as db:
+    async with db_connect() as db:
         await db.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -110,7 +115,7 @@ async def init_db():
 
 
 async def ensure_user(user_id: int):
-    async with await db_connect() as db:
+    async with db_connect() as db:
         await db.execute(
             "INSERT OR IGNORE INTO users(user_id, timezone) VALUES (?, 'UTC')",
             (user_id,),
@@ -120,7 +125,7 @@ async def ensure_user(user_id: int):
 
 async def get_timezone(user_id: int) -> ZoneInfo:
     await ensure_user(user_id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute("SELECT timezone FROM users WHERE user_id = ?", (user_id,))
         row = await cur.fetchone()
     try:
@@ -186,7 +191,7 @@ async def set_timezone(message: Message):
         await message.answer("I couldn't recognize that timezone. Use an IANA name such as Europe/London or Africa/Lagos.")
         return
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         await db.execute("UPDATE users SET timezone = ? WHERE user_id = ?", (tz_name, message.from_user.id))
         await db.commit()
     await message.answer(f"Timezone set to <b>{escape(tz_name)}</b>.")
@@ -199,7 +204,7 @@ async def add_task(message: Message):
         await message.answer("Usage: /addtask Finish project proposal")
         return
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "INSERT INTO tasks(user_id, title, created_at) VALUES (?, ?, ?)",
             (message.from_user.id, title[:500], now_utc_iso()),
@@ -213,7 +218,7 @@ async def add_task(message: Message):
 @dp.message(F.text == "Tasks")
 async def list_tasks(message: Message):
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "SELECT id, title, due_date FROM tasks WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 30",
             (message.from_user.id,),
@@ -237,7 +242,7 @@ async def complete_task(message: Message):
         await message.answer("Usage: /done TASK_ID")
         return
     task_id = int(parts[1])
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "UPDATE tasks SET status = 'done' WHERE id = ? AND user_id = ? AND status = 'open'",
             (task_id, message.from_user.id),
@@ -269,7 +274,7 @@ async def add_reminder(message: Message):
     if remind_at <= datetime.now(timezone.utc):
         await message.answer("That time is in the past. Please choose a future date and time.")
         return
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "INSERT INTO reminders(user_id, body, remind_at_utc, created_at) VALUES (?, ?, ?, ?)",
             (message.from_user.id, body[:500], remind_at.replace(microsecond=0).isoformat(), now_utc_iso()),
@@ -287,7 +292,7 @@ async def add_reminder(message: Message):
 async def list_reminders(message: Message):
     await ensure_user(message.from_user.id)
     tz = await get_timezone(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "SELECT id, body, remind_at_utc FROM reminders WHERE user_id = ? AND status = 'pending' ORDER BY remind_at_utc LIMIT 20",
             (message.from_user.id,),
@@ -310,7 +315,7 @@ async def save_note(message: Message):
         await message.answer("Usage: /note Remember the book recommendation")
         return
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "INSERT INTO notes(user_id, body, created_at) VALUES (?, ?, ?)",
             (message.from_user.id, body[:4000], now_utc_iso()),
@@ -324,7 +329,7 @@ async def save_note(message: Message):
 @dp.message(F.text == "Notes")
 async def list_notes(message: Message):
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "SELECT id, body, created_at FROM notes WHERE user_id = ? ORDER BY id DESC LIMIT 10",
             (message.from_user.id,),
@@ -348,7 +353,7 @@ async def add_habit(message: Message):
         await message.answer("Usage: /addhabit Read for 15 minutes")
         return
     await ensure_user(message.from_user.id)
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "INSERT INTO habits(user_id, title, created_at) VALUES (?, ?, ?)",
             (message.from_user.id, title[:200], now_utc_iso()),
@@ -364,7 +369,7 @@ async def list_habits(message: Message):
     await ensure_user(message.from_user.id)
     tz = await get_timezone(message.from_user.id)
     today = local_now(tz).date().isoformat()
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             """
             SELECT h.id, h.title,
@@ -395,7 +400,7 @@ async def check_habit(message: Message):
     habit_id = int(parts[1])
     tz = await get_timezone(message.from_user.id)
     today = local_now(tz).date().isoformat()
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "SELECT id FROM habits WHERE id = ? AND user_id = ? AND active = 1",
             (habit_id, message.from_user.id),
@@ -418,7 +423,7 @@ async def today(message: Message):
     await ensure_user(message.from_user.id)
     tz = await get_timezone(message.from_user.id)
     today_date = local_now(tz).date().isoformat()
-    async with await db_connect() as db:
+    async with db_connect() as db:
         cur = await db.execute(
             "SELECT id, title FROM tasks WHERE user_id = ? AND status = 'open' ORDER BY id DESC LIMIT 20",
             (message.from_user.id,),
@@ -466,7 +471,7 @@ async def request_data_deletion(message: Message):
 @dp.message(Command("confirm_delete_my_data"))
 async def confirm_data_deletion(message: Message):
     user_id = message.from_user.id
-    async with await db_connect() as db:
+    async with db_connect() as db:
         await db.execute("DELETE FROM habit_checks WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM habits WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
@@ -481,7 +486,7 @@ async def reminder_worker(bot: Bot):
     while True:
         try:
             now = now_utc_iso()
-            async with await db_connect() as db:
+            async with db_connect() as db:
                 cur = await db.execute(
                     "SELECT id, user_id, body FROM reminders WHERE status = 'pending' AND remind_at_utc <= ? ORDER BY remind_at_utc LIMIT 100",
                     (now,),
@@ -493,7 +498,7 @@ async def reminder_worker(bot: Bot):
                         reminder["user_id"],
                         f"<b>White Deer reminder</b>\n{escape(reminder['body'])}",
                     )
-                    async with await db_connect() as db:
+                    async with db_connect() as db:
                         await db.execute(
                             "UPDATE reminders SET status = 'sent' WHERE id = ? AND status = 'pending'",
                             (reminder["id"],),
