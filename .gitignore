@@ -1,1 +1,7 @@
-.env\n.venv/\n__pycache__/\n*.py[cod]\n*.db\n*.sqlite3\n.DS_Store\n
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.DS_Store
