@@ -6,6 +6,9 @@ from html import escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiosqlite
+from dotenv import load_dotenv
+
+load_dotenv()
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
