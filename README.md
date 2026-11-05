@@ -74,6 +74,9 @@ White Deer is a Telegram personal organizer for daily tasks, reminders, notes, a
 | `/habits` | View habits and today's status |
 | `/checkhabit <id>` | Mark a habit complete today |
 | `/timezone <Area/City>` | Set your timezone, e.g. `Africa/Lagos` |
+| `/privacy` | Explain what information the bot stores |
+| `/delete_my_data` | Start deleting your stored data |
+| `/confirm_delete_my_data` | Confirm permanent data deletion |
 
 ## Data and privacy
 
